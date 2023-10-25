@@ -1,4 +1,4 @@
-package isp.rsa;
+package isp;
 
 import fri.isp.Agent;
 

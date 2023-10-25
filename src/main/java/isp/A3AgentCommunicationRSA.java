@@ -1,4 +1,4 @@
-package isp.rsa;
+package isp;
 
 import fri.isp.Agent;
 import fri.isp.Environment;
@@ -6,7 +6,7 @@ import fri.isp.Environment;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 
-public class AgentCommunicationRSA {
+public class A3AgentCommunicationRSA {
     public static void main(String[] args) throws Exception {
 
         final KeyPair aliceKP = KeyPairGenerator.getInstance("RSA").generateKeyPair();
