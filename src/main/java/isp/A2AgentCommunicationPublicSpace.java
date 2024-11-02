@@ -4,6 +4,15 @@ import fri.isp.Agent;
 import fri.isp.Environment;
 
 import java.security.SecureRandom;
+import java.security.Key;
+import javax.crypto.spec.GCMParameterSpec;
+import java.security.MessageDigest;
+import java.util.Arrays;
+import javax.crypto.KeyGenerator;
+
+import javax.crypto.Cipher;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.IvParameterSpec;
 
 /**
  * TASK:
@@ -32,44 +41,75 @@ public class A2AgentCommunicationPublicSpace {
     public static void main(String[] args) throws Exception {
         final Environment env = new Environment();
 
-        // Create a ChaCha20 key that is used by Alice and the public-space
-        // Create an AES key that is used by Bob and the public-space
+        // Create keys
+        final SecretKey chacha20Key = KeyGenerator.getInstance("ChaCha20").generateKey();
+        final SecretKey aesKey = KeyGenerator.getInstance("AES").generateKey();
 
         env.add(new Agent("alice") {
             @Override
             public void task() throws Exception {
-                // a payload of 200 MB
+                // Generate and send data
                 final byte[] data = new byte[200 * 1024 * 1024];
                 new SecureRandom().nextBytes(data);
+                send("bob", data);
 
-                // Alice sends the data directly to Bob
-                // The channel between Alice and Bob is not secured
-                // Alice then computes the digest of the data and sends the digest to public-space
-                // The channel between Alice and the public-space is secured with ChaCha20-Poly1305
-                // Use the key that you have created above.
+                // Compute digest
+                MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                byte[] hash = digest.digest(data);
 
+                // Encrypt digest with ChaCha20-Poly1305
+                Cipher cipher = Cipher.getInstance("ChaCha20-Poly1305");
+                cipher.init(Cipher.ENCRYPT_MODE, chacha20Key);
+                byte[] encryptedHash = cipher.doFinal(hash);
+                
+                // Send IV and encrypted hash
+                send("public-space", cipher.getIV());
+                send("public-space", encryptedHash);
             }
         });
 
         env.add(new Agent("public-space") {
             @Override
             public void task() throws Exception {
-                // Receive the encrypted digest from Alice and decrypt ChaCha20 and
-                // the key that you share with Alice
-                // Encrypt the digest with AES-GCM and the key that you share with Bob and
-                // send the encrypted digest to Bob
+                // Receive and decrypt from Alice
+                byte[] iv = receive("alice");
+                byte[] encryptedHash = receive("alice");
+                
+                Cipher cipher = Cipher.getInstance("ChaCha20-Poly1305");
+                cipher.init(Cipher.DECRYPT_MODE, chacha20Key, new IvParameterSpec(iv));
+                byte[] hash = cipher.doFinal(encryptedHash);
 
+                // Encrypt with AES-GCM for Bob
+                Cipher aesCipher = Cipher.getInstance("AES/GCM/NoPadding");
+                aesCipher.init(Cipher.ENCRYPT_MODE, aesKey);
+                byte[] reEncryptedHash = aesCipher.doFinal(hash);
+                
+                // Send to Bob
+                send("bob", aesCipher.getIV());
+                send("bob", reEncryptedHash);
             }
         });
 
         env.add(new Agent("bob") {
             @Override
             public void task() throws Exception {
-                // Receive the data from Alice and compute the digest over it using SHA-256
-                // Receive the encrypted digest from the public-space, decrypt it using AES-GCM
-                // and the key that Bob shares with the public-space
-                // Compare the computed digest and the received digest and print the string
-                // "data valid" if the verification succeeds, otherwise print "data invalid"
+                // Receive and hash data from Alice
+                byte[] data = receive("alice");
+                MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                byte[] computedHash = digest.digest(data);
+
+                // Receive and decrypt hash from public-space
+                byte[] iv = receive("public-space");
+                byte[] encryptedHash = receive("public-space");
+                
+                Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+                GCMParameterSpec specs = new GCMParameterSpec(128, iv);
+                cipher.init(Cipher.DECRYPT_MODE, aesKey, specs);
+                byte[] receivedHash = cipher.doFinal(encryptedHash);
+
+                // Verify
+                System.out.println(Arrays.equals(computedHash, receivedHash) ? 
+                    "data valid" : "data invalid");
             }
         });
 
